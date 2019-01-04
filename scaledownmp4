@@ -1,0 +1,31 @@
+#!/bin/bash
+
+set -euo pipefail
+
+getrate(){
+	length="$(mplayer -identify -frames 0 -vo null "$1" 2>/dev/null | grep ID_LENGTH | sed -e 's/^.*=//')"
+	size="$(stat -c %s "$1")"
+	rate="$(echo "( $size * 8 ) / $length" | bc -l)"
+	echo "${rate%%.*}"
+}
+input="$1"
+output="${input%.*}.new.mp4"
+
+if [ -e "$output" ]; then
+	echo "$output already exists!"
+	exit 1
+fi
+
+inputrate="$(getrate "$input")"
+
+if [ "$inputrate" -lt "2097152" ]; then
+	echo "Rate is already $(echo "scale=3; $inputrate / 1024 / 1024" | bc -l)MB/s"
+	exit
+fi
+
+echo "Original rate is $(echo "scale=3; $inputrate / 1024 / 1024" | bc -l)MB/s"
+ionice -c 3 nice ffmpeg -y -i "$input" -c:v libx264 -preset medium -b:v 1550k -pass 1 -c:a aac -b:a 128k -f mp4 -strict -2 /dev/null
+ionice -c 3 nice ffmpeg -i "$input" -c:v libx264 -preset medium -b:v 1550k -pass 2 -c:a aac -strict -2 -b:a 128k -movflags faststart "$output"
+echo "New rate is $(echo "scale=3; $(getrate "$output") / 1024 / 1024" | bc -l)MB/s"
+#rm "$input"
+#mv "$output" "${input%.*}.mp4"
